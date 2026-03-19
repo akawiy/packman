@@ -4,34 +4,40 @@ import os
 import pathlib
 import time
 
-from config import VERSION_INT, MAGIC, EXTENSION, RAM_BUFFER_SIZE
-from misc import colored, list_folder, get_creation_timestamp
-from validator import Validator
+from config import VERSION_INT, FORMAT_B, EXTENSION, BUFFER_SIZE
+from encryption import encrypt_file, load_and_validate_key
+from filesystem import list_folder, get_creation_timestamp
+from logger import logger, Color
+from validation import Validator
 
 
 class Packer:
 
-    def __init__(self, path_in: str, path_out: str | None = None, log_details: bool = False) -> None:
+    def __init__(self, path_in: str, path_out: str | None = None, key: str | bytes | None = None) -> None:
         self.__path_in = os.path.abspath(path_in)
         self.__path_in_obj: pathlib.Path = pathlib.Path(self.__path_in)
         if path_out is None:
             path_out = os.path.join(os.getcwd(), f"{self.__path_in_obj.stem}.{EXTENSION}")
         self.__path_out: str = os.path.abspath(path_out)
-        self.__log_details: bool = log_details
-
+        self.__key: bytes | None = load_and_validate_key(key)
 
     def __validate_before(self) -> bool:
-        if not self.__path_in_obj.exists():
-            if self.__log_details:
-                print(colored(f"Packing failed: input path must lead to an existing file or folder", 31))
+        if self.__key is not None and len(self.__key) == 0:
             return False
 
-        if self.__path_out == self.__path_out.removesuffix(f".{EXTENSION}"):
-            if self.__log_details:
-                print(colored(f"Packing failed: output path must end with \".{EXTENSION}\"", 31))
-            return False
+        if not self.__path_in_obj.exists():
+            return logger.log(f"Packing failed: input path must lead to an existing file or folder", Color.RED, False)
+
+        if self.__path_out.lower() == self.__path_out.lower().removesuffix(f".{EXTENSION}"):
+            return logger.log(f"Packing failed: output path must end with \".{EXTENSION}\"", Color.RED, False)
 
         return True
+
+
+    def __pack_header(self, writer: io.BufferedWriter) -> None:
+        version_and_flags: int = VERSION_INT * 2 + int(self.__key is not None)
+        version_and_flags_b: bytes = version_and_flags.to_bytes(1)
+        writer.write(FORMAT_B + version_and_flags_b)
 
 
     @staticmethod
@@ -42,7 +48,7 @@ class Packer:
         checksum.update(size_b)
 
         with open(path, "rb") as reader:
-            while buffer := reader.read(RAM_BUFFER_SIZE):
+            while buffer := reader.read(BUFFER_SIZE):
                 writer.write(buffer)
                 checksum.update(buffer)
 
@@ -58,9 +64,9 @@ class Packer:
     @staticmethod
     def __get_item_type(path_obj: pathlib.Path) -> int:
         if path_obj.is_file():
-            return 0
+            return 0  # File
         if path_obj.is_dir():
-            return 1
+            return 1  # Folder
         return -1
 
 
@@ -70,17 +76,22 @@ class Packer:
 
         item_type: int = self.__get_item_type(path_obj)
         if item_type < 0:
-            self.__log_unable_to_pack(path)
+            logger.log(f"Unable to pack \"{path}\"", Color.RED)
             return
         item_type_b: bytes = item_type.to_bytes(1)
+
         item_name: str = path_obj.name
         item_name_b: bytes = item_name.encode()
+
         item_name_size: int = len(item_name_b)
         item_name_size_b: bytes = item_name_size.to_bytes(1)
+
         creation_timestamp: int = int(get_creation_timestamp(path))
         creation_timestamp_b: bytes = creation_timestamp.to_bytes(8)
+
         modification_timestamp: int = int(os.path.getmtime(path))
         modification_timestamp_b: bytes = modification_timestamp.to_bytes(8)
+
         all_b: bytes = item_type_b + item_name_size_b + item_name_b + creation_timestamp_b + modification_timestamp_b
         writer.write(all_b)
         checksum.update(all_b)
@@ -98,43 +109,36 @@ class Packer:
         items: list[str] = [self.__path_in] + list_folder(self.__path_in)
 
         for index, path in enumerate(items):
-            self.__log_packing(items, index, path)
+            percentage: float = index / len(items)
+            logger.log(f"Packing {percentage:.1%} \"{path}\"...")
             self.__pack_item(path, writer)
 
 
-    def __log_packing(self, items: list[str], index: int, path: str) -> None:
-        if not self.__log_details:
+    def pack(self) -> None:
+        start_time: float = time.time()
+
+        if not self.__validate_before():
             return
 
-        percentage: float = index / len(items)
-        print(f"Packing {percentage:.1%} \"{path}\"...")
+        with open(self.__path_out, "wb") as writer:
+            self.__pack_header(writer)
+            self.__pack_items(writer)
 
+        if self.__key is not None:
+            logger.log(f"Encrypting \"{self.__path_out}\"...")
+            encrypted_output_path: str = f"{self.__path_out[:-4]}.encrypted.{self.__path_out[-3:]}"
 
-    def __log_unable_to_pack(self, path: str) -> None:
-        if not self.__log_details:
-            return
+            with open(self.__path_out, "rb") as reader, open(encrypted_output_path, "wb") as writer:
+                header: bytes = reader.read(5)
+                writer.write(header)
+                encrypt_file(reader, writer, self.__key)
 
-        print(colored(f"Unable to pack \"{path}\"", 33))
+            os.remove(self.__path_out)
+            os.rename(encrypted_output_path, self.__path_out)
 
-
-    def __log_done(self, start_time: float) -> None:
-        if not self.__log_details:
+        if not Validator(self.__path_out, key=self.__key).validate():
             return
 
         end_time: float = time.time()
         time_difference: float = end_time - start_time
-        print(colored(f"Packing complete ({time_difference:.3f}s)", 32))
-
-
-    def pack(self) -> None:
-        if not self.__validate_before():
-            return
-        start_time: float = time.time()
-
-        with open(self.__path_out, "wb") as writer:
-            writer.write(MAGIC + VERSION_INT.to_bytes(1))
-            self.__pack_items(writer)
-
-        if not Validator(self.__path_out, log_details=self.__log_details).validate():
-            return
-        self.__log_done(start_time)
+        logger.log(f"Packing complete ({time_difference:.3f}s)", Color.GREEN)

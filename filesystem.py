@@ -3,14 +3,6 @@ import pathlib
 import platform
 import statx
 
-from config import ANSI_COLORS
-
-
-def colored(text: str, color_code: int | None = None) -> str:
-    if not ANSI_COLORS or color_code is None:
-        return text
-    return f"\033[{color_code}m{text}\033[0m"
-
 
 def list_folder(path: str) -> list[str]:
     path = os.path.abspath(path)

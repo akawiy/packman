@@ -3,64 +3,68 @@ import io
 import os
 import pathlib
 
-from config import PROJECT_NAME, VERSION_INT, MAGIC, EXTENSION, RAM_BUFFER_SIZE
-from misc import colored
+from config import PROJECT_NAME, VERSION_INT, FORMAT_B, EXTENSION, BUFFER_SIZE
+from encryption import decrypt_file, load_and_validate_key
+from logger import logger, Color
 
 
 class Validator:
 
-    def __init__(self, path_in: str, log_details: bool = False) -> None:
+    def __init__(self, path_in: str, key: str | bytes | None = None) -> None:
         self.__path_in: str = os.path.abspath(path_in)
-        self.__log_details: bool = log_details
+        self.__key: bytes | None = load_and_validate_key(key)
 
         self.__item_count: int | None = None
+        self.__is_encrypted: bool | None = None
 
 
     @property
     def item_count(self) -> int | None:
         return self.__item_count
 
+    @property
+    def is_encrypted(self) -> bool | None:
+        return self.__is_encrypted
+
 
     def __validate_before(self) -> bool:
+        if self.__path_in.lower() == self.__path_in.lower().removesuffix(f".{EXTENSION}"):
+            return logger.log(f"Validation failed: input path must end with \".{EXTENSION}\"", Color.RED, False)
+
         path_in_obj: pathlib.Path = pathlib.Path(self.__path_in)
-        if self.__path_in == self.__path_in.removesuffix(f".{EXTENSION}"):
-            if self.__log_details:
-                print(colored(f"Validation failed: input path must end with \".{EXTENSION}\"", 31))
-            return False
         if not path_in_obj.exists() or not path_in_obj.is_file():
-            if self.__log_details:
-                print(colored(f"Validation failed: input path must lead to an existing file", 31))
-            return False
+            return logger.log(f"Validation failed: input path must lead to an existing file", Color.RED, False)
 
         return True
 
 
-    def __validate_magic(self, reader: io.BufferedReader) -> bool:
-        magic_b: bytes = reader.read(4)
-
-        if magic_b == MAGIC:
-            return True
-        if self.__log_details:
-            print(colored("Validation failed: magic is incorrect, this potentially "
-                          "means file of the wrong format is being provided", 31))
-        return False
+    @staticmethod
+    def __insufficient_content_size() -> bool:
+        return logger.log("Validation failed: insufficient content size", Color.RED, False)
 
 
-    def __validate_version(self, reader: io.BufferedReader) -> bool:
-        version_b: bytes = reader.read(1)
-        version: int = int.from_bytes(version_b)
+    def __validate_header(self, reader: io.BufferedReader) -> bool:
+        format_b: bytes = reader.read(4)
+        if len(format_b) < 4:
+            return self.__insufficient_content_size()
 
-        if version == VERSION_INT:
-            return True
-        if self.__log_details:
-            while (i := input(colored(
-                    f"Warning: {PROJECT_NAME} version ({VERSION_INT}) does not match the file "
-                    f"version ({version}), which may cause unexpected behaviour during validation "
-                    f"and unpacking. Do you want to continue? [Y / N]: ", 33
-            ))) not in ["Y", "N"]:
-                pass
-            if i == "N":
+        version_and_flags_b: bytes = reader.read(1)
+        if len(version_and_flags_b) < 1:
+            return self.__insufficient_content_size()
+        version_and_flags: int = int.from_bytes(version_and_flags_b)
+
+        version: int = version_and_flags // 2
+        self.__is_encrypted: bool = bool(version_and_flags % 2)
+
+        if version != VERSION_INT:
+            if not logger.confirm(f"Warning: {PROJECT_NAME} version ({VERSION_INT}) does not match the file "
+                                  f"version ({version}), which may cause unexpected behaviour during validation "
+                                  f"and unpacking. Do you want to continue?", Color.YELLOW):
                 return False
+
+        if format_b != FORMAT_B:
+            return logger.log(f"Validation failed: incorrect file format provided", Color.RED, False)
+
         return True
 
 
@@ -72,7 +76,7 @@ class Validator:
         checksum.update(size_b)
 
         while size > 0:
-            buffer_size: int = min(size, RAM_BUFFER_SIZE)
+            buffer_size: int = min(size, BUFFER_SIZE)
             buffer: bytes = reader.read(buffer_size)
             if len(buffer) < buffer_size:
                 return self.__insufficient_content_size()
@@ -100,32 +104,40 @@ class Validator:
         if len(item_type_b) == 0:
             return None
         item_type: int = int.from_bytes(item_type_b)
+
         item_name_size_b: bytes = reader.read(1)
         if len(item_name_size_b) < 1:
             return self.__insufficient_content_size()
         item_name_size: int = int.from_bytes(item_name_size_b)
+
         item_name_b: bytes = reader.read(item_name_size)
         if len(item_name_b) < item_name_size:
             return self.__insufficient_content_size()
+
         creation_timestamp_b: bytes = reader.read(8)
         if len(creation_timestamp_b) < 8:
             return self.__insufficient_content_size()
+
         modification_timestamp_b: bytes = reader.read(8)
         if len(modification_timestamp_b) < 8:
             return self.__insufficient_content_size()
+
         all_b: bytes = item_type_b + item_name_size_b + item_name_b + creation_timestamp_b + modification_timestamp_b
         checksum.update(all_b)
 
         match item_type:
-            case 0:
+            case 0:  # File
                 if not self.__validate_file(reader, checksum):
                     return False
-            case 1:
+            case 1:  # Folder
                 if not self.__validate_folder(reader, checksum, location):
                     return False
 
-        if checksum.digest() != reader.read(32):
-            return self.__checksums_did_not_match()
+        stored_checksum: bytes = reader.read(32)
+        if len(stored_checksum) < 32:
+            return self.__insufficient_content_size()
+        if checksum.digest() != stored_checksum:
+            return logger.log("Validation failed: checksums did not match", Color.RED, False)
         return True
 
 
@@ -148,51 +160,36 @@ class Validator:
                 return False
 
         if len(location) > 0:
-            return self.__file_tree_incorrect()
-        return True
-
-
-    def __log_validating(self) -> None:
-        if not self.__log_details:
-            return
-        print(f"Validating \"{self.__path_in}\"...")
-
-
-    def __insufficient_content_size(self) -> bool:
-        if self.__log_details:
-            print(colored("Validation failed: insufficient content size", 31))
-        return False
-
-
-    def __checksums_did_not_match(self) -> bool:
-        if self.__log_details:
-            print(colored("Validation failed: checksums did not match", 31))
-        return False
-
-
-    def __file_tree_incorrect(self) -> bool:
-        if self.__log_details:
-            print(colored("Validation failed: file tree is incorrect", 31))
-        return False
-
-
-    def __success(self) -> bool:
-        if self.__log_details:
-            print(colored("Validation successful", 32))
+            return logger.log("Validation failed: file tree is incorrect", Color.RED, False)
         return True
 
 
     def validate(self) -> bool:
-        self.__log_validating()
+        logger.log(f"Validating \"{self.__path_in}\"...")
         if not self.__validate_before():
             return False
 
+        encrypted_output_path: str = f"{self.__path_in[:-4]}.encrypted.{self.__path_in[-3:]}"
+        decrypted_output_path: str = f"{self.__path_in[:-4]}.decrypted.{self.__path_in[-3:]}"
+        if self.__key is not None:
+            logger.log(f"Decrypting \"{self.__path_in}\"...")
+
+            with open(self.__path_in, "rb") as reader, open(decrypted_output_path, "wb") as writer:
+                header: bytes = reader.read(5)
+                writer.write(header)
+                decrypt_file(reader, writer, self.__key)
+
+            os.rename(self.__path_in, encrypted_output_path)
+            os.rename(decrypted_output_path, self.__path_in)
+
         with open(self.__path_in, "rb") as reader:
-            if not self.__validate_magic(reader):
-                return False
-            if not self.__validate_version(reader):
+            if not self.__validate_header(reader):
                 return False
             if not self.__validate_items(reader):
                 return False
 
-        return self.__success()
+        if self.__key is not None:
+            os.remove(self.__path_in)
+            os.rename(encrypted_output_path, self.__path_in)
+
+        return logger.log("Validation successful", Color.GREEN, True)

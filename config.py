@@ -1,11 +1,20 @@
 from datetime import date
 
 
+# Project
 PROJECT_NAME: str = "Packman"
-VERSION_STR: str = "v1.2.0"
-VERSION_INT: int = 2
-RELEASE_DATE: date = date(day=17, month=3, year=2026)
-MAGIC: bytes = b"PKMN"  # 4 bytes long
+VERSION_STR: str = "v1.3.0"
+VERSION_INT: int = 3
+RELEASE_DATE: date = date(day=19, month=3, year=2026)
+
+# Format
+FORMAT_B: bytes = b".PKD"  # exactly 4 bytes long
 EXTENSION: str = "pkd"
+KEY_EXTENSION: str = "key"
+
+# Logger
+LOG: bool = True
 ANSI_COLORS: bool = True
-RAM_BUFFER_SIZE: int = 65_536  # in bytes
+
+# Performance
+BUFFER_SIZE: int = 16 * 1024 * 1024  # in bytes

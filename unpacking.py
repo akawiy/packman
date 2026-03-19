@@ -5,27 +5,20 @@ import platform
 import time
 import win32_setctime
 
-from config import RAM_BUFFER_SIZE
-from misc import colored
-from validator import Validator
+from config import EXTENSION, BUFFER_SIZE
+from encryption import decrypt_file, load_and_validate_key
+from logger import logger, Color
+from validation import Validator
 
 
 class Unpacker:
 
-    def __init__(self, path_in: str, path_out: str | None = None, log_details: bool = False) -> None:
+    def __init__(self, path_in: str, path_out: str | None = None, key: str | bytes | None = None) -> None:
         self.__path_in: str = os.path.abspath(path_in)
         self.__path_out: str | None = path_out and os.path.abspath(path_out)
-        self.__log_details: bool = log_details
+        self.__key: bytes | None = load_and_validate_key(key)
 
         self.__timestamps: list[tuple[str, int, int]] = []
-
-
-    def __log_unpacking(self, item_count: int, index: int, path: str) -> None:
-        if not self.__log_details:
-            return
-
-        percentage: float = index / item_count
-        print(f"Unpacking {percentage:.1%} \"{path}\"...")
 
 
     def __get_path(self, item_name: str, location: list[list[str | int]], index: int) -> str:
@@ -43,7 +36,7 @@ class Unpacker:
 
         with open(file_path, "wb") as writer:
             while size > 0:
-                buffer_size: int = min(size, RAM_BUFFER_SIZE)
+                buffer_size: int = min(size, BUFFER_SIZE)
                 buffer: bytes = reader.read(buffer_size)
                 size -= buffer_size
                 writer.write(buffer)
@@ -69,17 +62,23 @@ class Unpacker:
         if len(item_type_b) == 0:
             return False  # No more items to unpack
         item_type: int = int.from_bytes(item_type_b)
+
         item_name_size_b: bytes = reader.read(1)
         item_name_size: int = int.from_bytes(item_name_size_b)
+
         item_name_b: bytes = reader.read(item_name_size)
         item_name: str = item_name_b.decode()
-        item_path: str = self.__get_path(item_name, location, item_index)
 
-        self.__log_unpacking(item_count, item_index, item_path)
+        item_path: str = self.__get_path(item_name, location, item_index)
+        percentage: float = item_index / item_count
+        logger.log(f"Unpacking {percentage:.1%} \"{item_path}\"...")
+
         creation_timestamp_b: bytes = reader.read(8)
         creation_timestamp: int = int.from_bytes(creation_timestamp_b)
+
         modification_timestamp_b: bytes = reader.read(8)
         modification_timestamp: int = int.from_bytes(modification_timestamp_b)
+
         if self.__path_out is None or item_index != 0:
             self.__timestamps.append((item_path, creation_timestamp, modification_timestamp))
 
@@ -108,33 +107,42 @@ class Unpacker:
             if len(location) > 0 and location[-1][1] == 0:
                 location.pop()
 
-        if self.__log_details:
-            print("Setting timestamps...")
+        logger.log("Setting timestamps...")
         for item_path, creation_timestamp, modification_timestamp in self.__timestamps:
             if platform.system() == "Windows":
                 win32_setctime.setctime(item_path, creation_timestamp)
             os.utime(item_path, (time.time(), modification_timestamp))
 
 
-    def __log_done(self, start_time: float) -> None:
-        if not self.__log_details:
-            return
-
-        end_time: float = time.time()
-        time_difference: float = end_time - start_time
-        print(colored(f"Unpacking complete ({time_difference:.3f}s)", 32))
-
-
     def unpack(self) -> None:
-        validator: Validator = Validator(self.__path_in, log_details=True)
-        if not validator.validate():
-            return
         start_time: float = time.time()
         self.__timestamps.clear()
 
-        with open(self.__path_in, "rb") as reader:
-            reader.read(5)  # Ignoring magic and version as they have already been checked by the validator
+        validator: Validator = Validator(self.__path_in, key=self.__key)
+        if not validator.validate():
+            return
 
+        encrypted_output_path: str = f"{self.__path_in[:-4]}.encrypted.{self.__path_in[-3:]}"
+        decrypted_output_path: str = f"{self.__path_in[:-4]}.decrypted.{self.__path_in[-3:]}"
+        if self.__key is not None:
+            logger.log(f"Decrypting \"{self.__path_in}\"...")
+
+            with open(self.__path_in, "rb") as reader, open(decrypted_output_path, "wb") as writer:
+                header: bytes = reader.read(5)
+                writer.write(header)
+                decrypt_file(reader, writer, self.__key)
+
+            os.rename(self.__path_in, encrypted_output_path)
+            os.rename(decrypted_output_path, self.__path_in)
+
+        with open(self.__path_in, "rb") as reader:
+            reader.read(5)  # Ignoring format, version and flags as they have already been checked by the validator
             self.__unpack_items(reader, validator.item_count)
 
-        self.__log_done(start_time)
+        if self.__key is not None:
+            os.remove(self.__path_in)
+            os.rename(encrypted_output_path, self.__path_in)
+
+        end_time: float = time.time()
+        time_difference: float = end_time - start_time
+        logger.log(f"Unpacking complete ({time_difference:.3f}s)", Color.GREEN)
