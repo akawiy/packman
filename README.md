@@ -42,7 +42,7 @@ Each archive starts with metadata:
     - `0`: v1.0.0 (never appears)
     - `1`: v1.1.0 (never appears)
     - `2`: v1.2.0
-    - `3`: v1.3.0
+    - `3`: v1.3.0, v1.3.1
   - **Is-encrypted flag** — 1 bit
 
 <a name="entries"></a>
