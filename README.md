@@ -6,7 +6,7 @@
 - ⚡ **Memory-efficient:** processes big files in chunks instead of loading everything into RAM
 - 🔒 **Secure:** has an optional build-in strong encryption with a 256-bit key
 - 🛡 **Integrity-first:** can validate packed files to detect corruption at any stage, and does it automatically after packing and before unpacking
-- 🔗 **1-to-1 preservation:** stores hidden flag, creation and modification dates and assigns them to each file and folder during unpacking ([platform-dependent](#platform-dependencies))
+- 🔗 **1-to-1 preservation:** stores hidden flag, creation and modification dates and assigns them to each file and folder during unpacking ([platform-dependent](#notes))
 
 ## 🔍 Navigation:
 
