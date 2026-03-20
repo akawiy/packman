@@ -8,6 +8,8 @@
 - 🛡️ **Integrity-first:** can validate packed files to detect corruption at any stage, and does it automatically after packing and before unpacking
 - 🔗 **1-to-1 preservation:** stores hidden flag, creation and modification dates and assigns them to each file and folder during unpacking ([platform-dependent](#notes))
 
+<img width="851" height="392" alt="image" src="https://github.com/user-attachments/assets/0d881ee3-44ea-4bfe-9d8e-6a3110e9f64b" />
+
 ## 🔍 Navigation:
 
 - [📄 Format](#format)
