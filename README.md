@@ -64,7 +64,7 @@ Each file or folder is stored as an entry:
   - **Number of items inside** — 4 bytes
 - **Checksum** (SHA-256 hash of all the bytes above, used to detect corruption of each entry individually) — 32 bytes
 
-🔒 During encryption header is never touched, only entries are affected
+🔒 Unlike entries, header is never encrypted
 
 <a name="build"></a>
 ## 🔨 Build
