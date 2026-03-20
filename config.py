@@ -3,7 +3,7 @@ from datetime import date
 
 # Project
 PROJECT_NAME: str = "Packman"
-VERSION_STR: str = "v1.3.0"
+VERSION_STR: str = "v1.3.1"
 VERSION_INT: int = 3
 RELEASE_DATE: date = date(day=20, month=3, year=2026)
 

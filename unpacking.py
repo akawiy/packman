@@ -35,7 +35,7 @@ class Unpacker:
         size_b: bytes = reader.read(8)
         size: int = int.from_bytes(size_b)
 
-        if force_overwrite:
+        if force_overwrite and os.path.exists(path):
             os.remove(path)
 
         with open(path, "wb") as writer:
