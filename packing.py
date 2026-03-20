@@ -6,7 +6,7 @@ import time
 
 from config import VERSION_INT, FORMAT_B, EXTENSION, BUFFER_SIZE
 from encryption import encrypt_file, load_and_validate_key
-from filesystem import list_folder, get_creation_timestamp
+from filesystem import list_folder, get_creation_timestamp, is_hidden
 from logger import logger, Color
 from validation import Validator
 
@@ -20,6 +20,7 @@ class Packer:
             path_out = os.path.join(os.getcwd(), f"{self.__path_in_obj.stem}.{EXTENSION}")
         self.__path_out: str = os.path.abspath(path_out)
         self.__key: bytes | None = load_and_validate_key(key)
+
 
     def __validate_before(self) -> bool:
         if self.__key is not None and len(self.__key) == 0:
@@ -76,15 +77,16 @@ class Packer:
 
         item_type: int = self.__get_item_type(path_obj)
         if item_type < 0:
-            logger.log(f"Unable to pack \"{path}\"", Color.RED)
+            logger.log(f"Unable to pack \"{path}\"", Color.YELLOW)
             return
-        item_type_b: bytes = item_type.to_bytes(1)
+        type_and_flags: int = item_type * 2 + int(is_hidden(path))
+        type_and_flags_b: bytes = type_and_flags.to_bytes(1)
 
-        item_name: str = path_obj.name
-        item_name_b: bytes = item_name.encode()
+        name: str = path_obj.name
+        name_b: bytes = name.encode()
 
-        item_name_size: int = len(item_name_b)
-        item_name_size_b: bytes = item_name_size.to_bytes(1)
+        name_size: int = len(name_b)
+        name_size_b: bytes = name_size.to_bytes(1)
 
         creation_timestamp: int = int(get_creation_timestamp(path))
         creation_timestamp_b: bytes = creation_timestamp.to_bytes(8)
@@ -92,7 +94,7 @@ class Packer:
         modification_timestamp: int = int(os.path.getmtime(path))
         modification_timestamp_b: bytes = modification_timestamp.to_bytes(8)
 
-        all_b: bytes = item_type_b + item_name_size_b + item_name_b + creation_timestamp_b + modification_timestamp_b
+        all_b: bytes = type_and_flags_b + name_size_b + name_b + creation_timestamp_b + modification_timestamp_b
         writer.write(all_b)
         checksum.update(all_b)
 

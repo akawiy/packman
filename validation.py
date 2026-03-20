@@ -100,18 +100,19 @@ class Validator:
     def __validate_item(self, reader: io.BufferedReader, location: list[int]) -> bool | None:
         checksum: hashlib.sha3_256 = hashlib.sha256()
 
-        item_type_b: bytes = reader.read(1)
-        if len(item_type_b) == 0:
+        type_and_flags_b: bytes = reader.read(1)
+        if len(type_and_flags_b) == 0:
             return None
-        item_type: int = int.from_bytes(item_type_b)
+        type_and_flags: int = int.from_bytes(type_and_flags_b)
+        item_type: int = type_and_flags // 2  # first 7 bits
 
-        item_name_size_b: bytes = reader.read(1)
-        if len(item_name_size_b) < 1:
+        name_size_b: bytes = reader.read(1)
+        if len(name_size_b) < 1:
             return self.__insufficient_content_size()
-        item_name_size: int = int.from_bytes(item_name_size_b)
+        name_size: int = int.from_bytes(name_size_b)
 
-        item_name_b: bytes = reader.read(item_name_size)
-        if len(item_name_b) < item_name_size:
+        name_b: bytes = reader.read(name_size)
+        if len(name_b) < name_size:
             return self.__insufficient_content_size()
 
         creation_timestamp_b: bytes = reader.read(8)
@@ -122,7 +123,7 @@ class Validator:
         if len(modification_timestamp_b) < 8:
             return self.__insufficient_content_size()
 
-        all_b: bytes = item_type_b + item_name_size_b + item_name_b + creation_timestamp_b + modification_timestamp_b
+        all_b: bytes = type_and_flags_b + name_size_b + name_b + creation_timestamp_b + modification_timestamp_b
         checksum.update(all_b)
 
         match item_type:

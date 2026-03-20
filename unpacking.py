@@ -7,6 +7,7 @@ import win32_setctime
 
 from config import BUFFER_SIZE
 from encryption import decrypt_file, load_and_validate_key
+from filesystem import hide
 from logger import logger, Color
 from validation import Validator
 
@@ -30,11 +31,14 @@ class Unpacker:
 
 
     @staticmethod
-    def __unpack_file(reader: io.BufferedReader, file_path: str) -> None:
+    def __unpack_file(reader: io.BufferedReader, path: str, force_overwrite: bool = False) -> None:
         size_b: bytes = reader.read(8)
         size: int = int.from_bytes(size_b)
 
-        with open(file_path, "wb") as writer:
+        if force_overwrite:
+            os.remove(path)
+
+        with open(path, "wb") as writer:
             while size > 0:
                 buffer_size: int = min(size, BUFFER_SIZE)
                 buffer: bytes = reader.read(buffer_size)
@@ -43,10 +47,10 @@ class Unpacker:
 
 
     @staticmethod
-    def __unpack_folder(reader: io.BufferedReader, folder_path: str, location: list[list[str | int]]) -> None:
+    def __unpack_folder(reader: io.BufferedReader, path: str, location: list[list[str | int]]) -> None:
         folder_item_count_b: bytes = reader.read(4)
         folder_item_count: int = int.from_bytes(folder_item_count_b)
-        folder_path_obj: pathlib.Path = pathlib.Path(folder_path)
+        folder_path_obj: pathlib.Path = pathlib.Path(path)
         location.append([folder_path_obj.name, folder_item_count])
         folder_path_obj.mkdir(exist_ok=True)  # Will throw an error it one of the parent folders don't exist
 
@@ -58,20 +62,22 @@ class Unpacker:
             item_count: int,
             item_index: int,
     ) -> bool:
-        item_type_b: bytes = reader.read(1)
-        if len(item_type_b) == 0:
+        type_and_flags_b: bytes = reader.read(1)
+        if len(type_and_flags_b) == 0:
             return False  # No more items to unpack
-        item_type: int = int.from_bytes(item_type_b)
+        type_and_flags: int = int.from_bytes(type_and_flags_b)
+        item_type: int = type_and_flags // 2  # first 7 bits
+        is_hidden: bool = bool(type_and_flags & 1)  # last bit
 
-        item_name_size_b: bytes = reader.read(1)
-        item_name_size: int = int.from_bytes(item_name_size_b)
+        name_size_b: bytes = reader.read(1)
+        name_size: int = int.from_bytes(name_size_b)
 
-        item_name_b: bytes = reader.read(item_name_size)
-        item_name: str = item_name_b.decode()
+        name_b: bytes = reader.read(name_size)
+        name: str = name_b.decode()
 
-        item_path: str = self.__get_path(item_name, location, item_index)
+        path: str = self.__get_path(name, location, item_index)
         percentage: float = item_index / item_count
-        logger.log(f"Unpacking {percentage:.1%} \"{item_path}\"...")
+        logger.log(f"Unpacking {percentage:.1%} \"{path}\"...")
 
         creation_timestamp_b: bytes = reader.read(8)
         creation_timestamp: int = int.from_bytes(creation_timestamp_b)
@@ -80,13 +86,16 @@ class Unpacker:
         modification_timestamp: int = int.from_bytes(modification_timestamp_b)
 
         if self.__path_out is None or item_index != 0:
-            self.__timestamps.append((item_path, creation_timestamp, modification_timestamp))
+            self.__timestamps.append((path, creation_timestamp, modification_timestamp))
 
         match item_type:
             case 0:
-                self.__unpack_file(reader, item_path)
+                self.__unpack_file(reader, path, force_overwrite=is_hidden)
             case 1:
-                self.__unpack_folder(reader, item_path, location)
+                self.__unpack_folder(reader, path, location)
+
+        if is_hidden:
+            hide(path)
 
         reader.read(32)  # Ignoring checksum as it has already been checked by the validator
         return True
