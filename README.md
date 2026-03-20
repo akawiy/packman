@@ -1,6 +1,6 @@
 # 🗂 Packman
 
-**Packman (Packing Manager)** is a tool for packing files and folders of any size into a single `.pkd` archive
+**Packman (Packing Manager)** is a console tool for packing files and folders of any size into a single `.pkd` archive
 
 - 🌍 **Cross-platform:** designed to work on Windows, Linux and macOS
 - ⚡ **Memory-efficient:** processes big files in chunks instead of loading everything into RAM
@@ -8,7 +8,7 @@
 - 🛡 **Integrity-first:** can validate packed files to detect corruption at any stage, and does it automatically after packing and before unpacking
 - 🔗 **1-to-1 preservation:** stores hidden flag, creation and modification dates and assigns them to each file and folder during unpacking ([platform-dependent](#platform-dependencies))
 
-## Navigation:
+## 🔍 Navigation:
 
 - [📄 Format](#format)
   - [#️⃣ Header](#header)
