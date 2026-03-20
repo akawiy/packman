@@ -2,40 +2,52 @@
 
 **Packman (Packing Manager)** is a tool for packing files and folders of any size into a single `.pkd` archive
 
-- 🌍 **Cross-platform:** works on Windows, Linux, and macOS
-- 🕘 **Preserves timestamps:** stores creation and modification dates and restores them during unpacking (platform-dependent)
-- 🛡 **Integrity-first:** validates .pkd files to detect corruption at any stage (including automatic checks after packing and before unpacking)
-- ⚡ **Memory-efficient:** processes files in chunks instead of loading everything into RAM
+- 🌍 **Cross-platform:** designed to work on Windows, Linux and macOS
+- ⚡ **Memory-efficient:** processes big files in chunks instead of loading everything into RAM
+- 🔒 **Secure:** has an optional build-in strong encryption with a 256-bit key
+- 🛡 **Integrity-first:** can validate packed files to detect corruption at any stage, and does it automatically after packing and before unpacking
+- 🔗 **1-to-1 preservation:** stores hidden flag, creation and modification dates and assigns them to each file and folder during unpacking ([platform-dependent](#platform-dependencies))
 
 ## 📄 Format
 
-### Header
+### #️⃣ Header
 
 Each archive starts with metadata:
 
-- **Magic** (`PKMN`, format identifier) — 4 bytes
-- **Version** — 1 byte
-  - `0x02`: v1.2.0
+- **Format identifier** (`.PKD`) — 4 bytes
+- **Version and flags** — 1 byte
+  - **Version** — 7 bits
+    - `0`: v1.0.0 (never appears)
+    - `1`: v1.1.0 (never appears)
+    - `2`: v1.2.0
+    - `3`: v1.3.0
+  - **Is-encrypted flag** — 1 bit
 
-### Content
+### 🏷 Entries
 
 Each file or folder is stored as an entry:
 
-- **Item type** — 1 byte
-  - `0x00`: file
-  - `0x01`: folder
-- **Item name size (N)** — 1 byte
-- **Item name** — N bytes
+- **Type and flags** — 1 byte
+  - **Type** — 7 bits
+    - `0`: file
+    - `1`: folder
+  - **Is-hidden flag** — 1 bit
+- **Name size (N)** — 1 byte
+- **Name** — N bytes
 - **Creation date and time** (Unix timestamp in seconds) — 8 bytes
 - **Modification date and time** (Unix timestamp in seconds) — 8 bytes
-- _If item is a file:_
+- _If file:_
   - **Content size (M)** — 8 bytes
   - **Content** — M bytes
-- _If item is a folder:_
+- _If folder:_
   - **Number of items inside** — 4 bytes
-- **Checksum** (SHA-256 hash of all the bytes above, used to detect corruption of each entry) — 32 bytes
+- **Checksum** (SHA-256 hash of all the bytes above, used to detect corruption of each entry individually) — 32 bytes
+
+🔒 During encryption header is never touched, only entries are affected
 
 ## 🔨 Build
+
+If you aren't planning to modify the program, you can download the latest compiled executable for **Windows** in the [Releases](https://github.com/akawiy/packman/releases) tab (or click [here](https://github.com/akawiy/packman/releases/download/latest/packman.exe))
 
 ### 1. Install Python
 
@@ -86,7 +98,7 @@ pip install pyinstaller
 pyinstaller -i "NONE" --onefile main.py --name packman
 ```
 
-Output will be located in the `dist` directory
+Output will be located in the `dist` folder
 
 ## 📋 Usage
 
@@ -94,59 +106,59 @@ Once you have `packman` / `packman.exe`, you can use the following commands:
 
 ### 📦 Packing
 
-Pack a file or folder:
-
 ```bash
-packman pack <input path>
+packman pack <input path> [-o <output path>] [-k <encryption key>]
 ```
 
-Optionally specify an output path:
+Argument descriptions:
 
-```bash
-packman pack <input path> -o <output path>
-```
-
-Output must end with `.pkd`; by default, the file is created in current directory with the same name as input
+- **Input path** — absolute or relative path to the file or folder you want to pack
+- **Output path** _(optional)_ — absolute or relative path to the output file (name included, must end with .pkd); by default, the file is created in the current directory with the same name as input
+- **Encryption key** _(optional)_ — either value or path to `.key` file; the key must be represented as 64-digit hexadecimal, a file where the key is saved directly in bytes will be rejected
 
 ### 📂 Unpacking
 
 ```bash
-packman unpack <input path>
+packman unpack <input path> [-o <output path>] [-k <decryption key>]
 ```
 
-Optionally specify an output path:
+Argument descriptions:
 
-```bash
-packman unpack <input path> -o <output path>
-```
+- **Input path** — absolute or relative path to the file you want to upack (must end with `.pkd`)
+- **Output path** _(optional)_ — absolute or relative path to the output file or folder (name included); by default, the file is created in the current directory with the same name as input
+- **Decryption key** _(required for encrypted archives only)_ — either value or path to `.key` file; the key must be represented as 64-digit hexadecimal, a file where the key is saved directly in bytes will be rejected
 
-**⚠️ If the output path already exists, files may be overwritten permanently!**
+**⚠️ If the output path already exists, some of your files inside may be permanently overwritten!**
 
 ### ✅ Validating
 
-Check archive integrity without unpacking:
-
-```bash
-packman validate <input path>
-```
-
+Check archive integrity without unpacking
 - Verifies checksums
 - Validates file tree structure
 
+```bash
+packman validate <input path> [-k <decryption key>]
+```
+
+Argument descriptions:
+
+- **Input path** — absolute or relative path to the file you want to upack (must end with `.pkd`)
+- **Decryption key** _(required for encrypted archives only)_ — either value or path to `.key` file; the key must be represented as 64-digit hexadecimal, a file where the key is saved directly in bytes will be rejected
+
 ### ℹ️ Version info
+
+Displays the current version and release date
 
 ```bash
 packman version
 ```
 
-Displays the current version and release date
-
 ## 📌 Notes
 
-- While modification timestamp is always preserved, creation timestamp support depends on the operating system:
-  - **Windows:** tested, supported
-  - **Linux and MacOS:** not tested, partially supported
-- Archive validation is strict — even a **single byte** change will **invalidate** the archive. Recovery may be possible, but the program doesn't support it.
+<a name="platform-dependencies"></a>
+- While Packman supports modification timestamp on all operating systems, creation timestamp preservation is partially supported on Linux and macOS, while assigning is unsupported entirely due to OS limitations.
+- Hidden items packed on Windows or macOS and unpacked on Linux won't be hidden unless their name starts with a dot. Similarly, if item's name starts with a dot, it will appear hidden on Linux and macOS in any case, even if it wasn't hidden on Windows. That's because Windows stores hidden flag as an internal attribute, Linux considers item hidden if its name starts with a dot, and macOS considers item hidden in both of these scenarios.
+- Archive validation is strict — even a **single byte change** will **invalidate** the archive. Recovery may be possible, but the program doesn't support it.
 - Despite providing a working solution with no intention to corrupt your data, project author does not guarantee the integrity of your files after using the program. **Use at your own risk!**
 
 **Not vibecoded, made by Vladimir Polischuk**
