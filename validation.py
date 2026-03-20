@@ -149,15 +149,15 @@ class Validator:
             if len(location) > 0:
                 location[-1] -= 1
 
-                if location[-1] == 0:
-                    location.pop()
-
             item_result: bool | None = self.__validate_item(reader, location)
             if item_result is None:
                 break
             self.__item_count += 1
             if not item_result:
                 return False
+
+            while len(location) > 0 and location[-1] == 0:
+                location.pop()
 
         if len(location) > 0:
             return logger.log("Validation failed: file tree is incorrect", Color.RED, False)
@@ -170,17 +170,14 @@ class Validator:
             return False
 
         encrypted_output_path: str = f"{self.__path_in[:-4]}.encrypted.{self.__path_in[-3:]}"
-        decrypted_output_path: str = f"{self.__path_in[:-4]}.decrypted.{self.__path_in[-3:]}"
         if self.__key is not None:
             logger.log(f"Decrypting \"{self.__path_in}\"...")
+            os.rename(self.__path_in, encrypted_output_path)
 
-            with open(self.__path_in, "rb") as reader, open(decrypted_output_path, "wb") as writer:
+            with open(encrypted_output_path, "rb") as reader, open(self.__path_in, "wb") as writer:
                 header: bytes = reader.read(5)
                 writer.write(header)
                 decrypt_file(reader, writer, self.__key)
-
-            os.rename(self.__path_in, encrypted_output_path)
-            os.rename(decrypted_output_path, self.__path_in)
 
         with open(self.__path_in, "rb") as reader:
             if not self.__validate_header(reader):

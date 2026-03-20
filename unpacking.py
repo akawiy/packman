@@ -5,7 +5,7 @@ import platform
 import time
 import win32_setctime
 
-from config import EXTENSION, BUFFER_SIZE
+from config import BUFFER_SIZE
 from encryption import decrypt_file, load_and_validate_key
 from logger import logger, Color
 from validation import Validator
@@ -104,7 +104,7 @@ class Unpacker:
                 break
             item_index += 1
 
-            if len(location) > 0 and location[-1][1] == 0:
+            while len(location) > 0 and location[-1][1] == 0:
                 location.pop()
 
         logger.log("Setting timestamps...")
@@ -123,17 +123,14 @@ class Unpacker:
             return
 
         encrypted_output_path: str = f"{self.__path_in[:-4]}.encrypted.{self.__path_in[-3:]}"
-        decrypted_output_path: str = f"{self.__path_in[:-4]}.decrypted.{self.__path_in[-3:]}"
         if self.__key is not None:
             logger.log(f"Decrypting \"{self.__path_in}\"...")
+            os.rename(self.__path_in, encrypted_output_path)
 
-            with open(self.__path_in, "rb") as reader, open(decrypted_output_path, "wb") as writer:
+            with open(encrypted_output_path, "rb") as reader, open(self.__path_in, "wb") as writer:
                 header: bytes = reader.read(5)
                 writer.write(header)
                 decrypt_file(reader, writer, self.__key)
-
-            os.rename(self.__path_in, encrypted_output_path)
-            os.rename(decrypted_output_path, self.__path_in)
 
         with open(self.__path_in, "rb") as reader:
             reader.read(5)  # Ignoring format, version and flags as they have already been checked by the validator

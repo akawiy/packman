@@ -116,7 +116,6 @@ class Packer:
 
     def pack(self) -> None:
         start_time: float = time.time()
-
         if not self.__validate_before():
             return
 
